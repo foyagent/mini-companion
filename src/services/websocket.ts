@@ -1,6 +1,12 @@
 import type { ConnectionStatus } from '../types'
 
-const WS_URL = 'ws://localhost:18789'
+const getWebSocketUrl = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.hostname
+  return `${protocol}//${host}:18789`
+}
+
+const WS_URL = getWebSocketUrl()
 const WS_TOKEN = 'a23e42985816ff307c2e29708a2eec5eba1a6f17117ad958'
 const MAX_RECONNECT_ATTEMPTS = 5
 const BASE_RECONNECT_DELAY = 1000
