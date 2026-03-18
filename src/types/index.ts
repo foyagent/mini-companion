@@ -15,6 +15,21 @@ export interface ChatMessage {
   retryForMessageId?: number
 }
 
+export type ToastTone = 'error' | 'info'
+
+export interface ToastState {
+  id: number
+  message: string
+  tone: ToastTone
+}
+
+export interface StatusItem {
+  label: string
+  value: string
+  icon: string
+  mobileHidden: boolean
+}
+
 export interface Live2DEventHandlers {
   onLoadStart?: () => void
   onLoadComplete?: () => void
