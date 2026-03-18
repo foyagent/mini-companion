@@ -1,8 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Live2DCanvas from './components/Live2DCanvas'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
+import heroImage from './assets/hero.png'
+import ChatInput from './components/ChatInput'
+import MessageList from './components/MessageList'
+import QuickReplies from './components/QuickReplies'
+import StatusBar from './components/StatusBar'
+import { useMessages } from './hooks/useMessages'
+import { useWebSocket } from './hooks/useWebSocket'
+import { speakText, isVolcTtsConfigured } from './services/tts'
 import { openClawWebSocket } from './services/websocket'
-import { isVolcTtsConfigured, speakText } from './services/tts'
-import type { ChatMessage, ConnectionStatus } from './types'
+import type { ChatMessage, ConnectionStatus, StatusItem, ToastState, ToastTone } from './types'
+
+const Live2DCanvas = lazy(() => import('./components/Live2DCanvas'))
 
 const starterMessages: ChatMessage[] = [
   {
@@ -12,6 +29,8 @@ const starterMessages: ChatMessage[] = [
     timestamp: Date.now(),
   },
 ]
+
+const quickReplies = ['帮我总结今天重点', '讲个冷笑话', '检查 OpenClaw 连接状态']
 
 const statusDotStyles: Record<ConnectionStatus, string> = {
   connecting: 'bg-yellow-500',
@@ -27,19 +46,9 @@ const statusLabels: Record<ConnectionStatus, string> = {
   error: '连接异常',
 }
 
-type ToastTone = 'error' | 'info'
-
-interface ToastState {
-  id: number
-  message: string
-  tone: ToastTone
-}
-
 function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>(starterMessages)
+  const { messages, appendMessages, updateMessage } = useMessages(starterMessages)
   const [input, setInput] = useState('')
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
-  const [connectionError, setConnectionError] = useState('')
   const [ttsWarning, setTtsWarning] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [isModelLoading, setIsModelLoading] = useState(true)
@@ -58,43 +67,21 @@ function App() {
     }, 3000)
   }, [])
 
+  const { connectionStatus, connectionError, setConnectionError, retryConnection } = useWebSocket(
+    showToast,
+  )
+
   useEffect(() => {
-    const unsubscribeStatus = openClawWebSocket.subscribeStatus((status) => {
-      setConnectionStatus(status)
-
-      if (status === 'connected') {
-        setConnectionError('')
-      }
-    })
-
-    const unsubscribeError = openClawWebSocket.subscribeError((message) => {
-      const friendlyMessage = message.includes('OpenClaw 服务')
-        ? '还没连上 OpenClaw。先确认服务已经启动，再点一次重试。'
-        : message
-
-      setConnectionError(friendlyMessage)
-      showToast(friendlyMessage)
-    })
-
-    void openClawWebSocket.connect().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : '连接 OpenClaw 失败。'
-      const friendlyMessage = `连接没有成功：${message}`
-      setConnectionError(friendlyMessage)
-      showToast(friendlyMessage)
-    })
-
     return () => {
-      unsubscribeStatus()
-      unsubscribeError()
-      openClawWebSocket.disconnect()
-
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current)
       }
     }
-  }, [showToast])
+  }, [])
 
-  const stats = useMemo(
+  const ttsConfigured = useMemo(() => isVolcTtsConfigured(), [])
+
+  const stats = useMemo<StatusItem[]>(
     () => [
       {
         label: '模型状态',
@@ -110,108 +97,13 @@ function App() {
       },
       {
         label: 'TTS 状态',
-        value: isVolcTtsConfigured() ? '火山已配置' : '待配置',
+        value: ttsConfigured ? '火山已配置' : '待配置',
         icon: '🔊',
         mobileHidden: true,
       },
     ],
-    [connectionStatus, isModelLoading],
+    [connectionStatus, isModelLoading, ttsConfigured],
   )
-
-  const handleRetryConnection = async () => {
-    setConnectionError('')
-
-    try {
-      await openClawWebSocket.connect()
-      showToast('重新连接成功。', 'info')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '重连失败。'
-      const friendlyMessage = `重试还是没连上：${message}`
-      setConnectionError(friendlyMessage)
-      showToast(friendlyMessage)
-    }
-  }
-
-  const handleSend = async () => {
-    const text = input.trim()
-    if (!text || isSending) return
-
-    const now = Date.now()
-    const userMessage: ChatMessage = {
-      id: now,
-      role: 'user',
-      content: text,
-      timestamp: now,
-    }
-
-    const assistantMessageId = now + 1
-    const assistantPlaceholder: ChatMessage = {
-      id: assistantMessageId,
-      role: 'mini',
-      content: '',
-      timestamp: now,
-    }
-
-    setMessages((current) => [...current, userMessage, assistantPlaceholder])
-    setInput('')
-    setConnectionError('')
-    setTtsWarning('')
-    setIsSending(true)
-
-    try {
-      await openClawWebSocket.sendMessage(text, {
-        onChunk: (_, fullText) => {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantMessageId ? { ...message, content: fullText } : message,
-            ),
-          )
-        },
-        onDone: async (fullText) => {
-          const finalText = fullText.trim() || '……Mini 这次好像想了很多，但没说出来。'
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantMessageId ? { ...message, content: finalText } : message,
-            ),
-          )
-
-          if (isVolcTtsConfigured()) {
-            try {
-              await speakText(finalText)
-            } catch {
-              setTtsWarning('TTS 播放失败')
-              showToast('TTS 播放失败')
-            }
-          }
-
-          setIsSending(false)
-        },
-        onError: (error) => {
-          const friendlyMessage = `连接出了点小岔子：${error.message}`
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantMessageId
-                ? { ...message, content: friendlyMessage }
-                : message,
-            ),
-          )
-          setConnectionError('消息没发成功，先检查一下连接状态，然后再试一次。')
-          showToast(error.message)
-          setIsSending(false)
-        },
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '发送失败。'
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === assistantMessageId ? { ...item, content: `发送失败：${message}` } : item,
-        ),
-      )
-      setConnectionError('这一条没有送出去，点重试或稍后再发一次。')
-      showToast(message)
-      setIsSending(false)
-    }
-  }
 
   const handleModelLoadStart = useCallback(() => {
     setIsModelLoading(true)
@@ -227,6 +119,105 @@ function App() {
       showToast(message)
     },
     [showToast],
+  )
+
+  const handleInputChange = useCallback((value: string) => {
+    setInput(value)
+  }, [])
+
+  const updateAssistantMessage = useCallback(
+    (assistantMessageId: number, content: string) => {
+      updateMessage(assistantMessageId, (message) => ({ ...message, content }))
+    },
+    [updateMessage],
+  )
+
+  const handleSendText = useCallback(
+    async (value: string) => {
+      const text = value.trim()
+      if (!text || isSending) return
+
+      const now = Date.now()
+      const userMessage: ChatMessage = {
+        id: now,
+        role: 'user',
+        content: text,
+        timestamp: now,
+      }
+
+      const assistantMessageId = now + 1
+      const assistantPlaceholder: ChatMessage = {
+        id: assistantMessageId,
+        role: 'mini',
+        content: '',
+        timestamp: now,
+      }
+
+      appendMessages([userMessage, assistantPlaceholder])
+      setInput('')
+      setConnectionError('')
+      setTtsWarning('')
+      setIsSending(true)
+
+      try {
+        await openClawWebSocket.sendMessage(text, {
+          onChunk: (_, fullText) => {
+            updateAssistantMessage(assistantMessageId, fullText)
+          },
+          onDone: async (fullText) => {
+            const finalText = fullText.trim() || '……Mini 这次好像想了很多，但没说出来。'
+            updateAssistantMessage(assistantMessageId, finalText)
+
+            if (ttsConfigured) {
+              try {
+                await speakText(finalText)
+              } catch {
+                setTtsWarning('TTS 播放失败')
+                showToast('TTS 播放失败')
+              }
+            }
+
+            setIsSending(false)
+          },
+          onError: (error) => {
+            const friendlyMessage = `连接出了点小岔子：${error.message}`
+            updateAssistantMessage(assistantMessageId, friendlyMessage)
+            setConnectionError('消息没发成功，先检查一下连接状态，然后再试一次。')
+            showToast(error.message)
+            setIsSending(false)
+          },
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '发送失败。'
+        updateAssistantMessage(assistantMessageId, `发送失败：${message}`)
+        setConnectionError('这一条没有送出去，点重试或稍后再发一次。')
+        showToast(message)
+        setIsSending(false)
+      }
+    },
+    [appendMessages, isSending, setConnectionError, showToast, ttsConfigured, updateAssistantMessage],
+  )
+
+  const handleSend = useCallback(async () => {
+    await handleSendText(input)
+  }, [handleSendText, input])
+
+  const handleQuickReply = useCallback(
+    (reply: string) => {
+      setInput(reply)
+      void handleSendText(reply)
+    },
+    [handleSendText],
+  )
+
+  const handleInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault()
+        void handleSend()
+      }
+    },
+    [handleSend],
   )
 
   return (
@@ -290,6 +281,16 @@ function App() {
                 </div>
               ))}
             </div>
+
+            <div className="mt-5 overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+              <img
+                src={heroImage}
+                alt="Mini Companion 预览图"
+                loading="lazy"
+                decoding="async"
+                className="h-40 w-full object-cover opacity-80"
+              />
+            </div>
           </div>
 
           <div className="relative flex-1 overflow-hidden rounded-2xl border border-blue-100/70 bg-gradient-to-br from-blue-50 to-purple-50 shadow-lg">
@@ -311,32 +312,29 @@ function App() {
             </div>
 
             <div className="h-full min-h-[360px] p-3 pt-16 md:min-h-[520px] md:p-4 md:pt-20 lg:min-h-[640px]">
-              <Live2DCanvas
-                onLoadStart={handleModelLoadStart}
-                onLoadComplete={handleModelLoadComplete}
-                onLoadError={handleModelLoadError}
-              />
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center rounded-[32px] border border-cyan-400/20 bg-slate-950/70 text-sm text-slate-300 shadow-2xl shadow-cyan-950/20">
+                    正在按需加载 Live2D 组件...
+                  </div>
+                }
+              >
+                <Live2DCanvas
+                  onLoadStart={handleModelLoadStart}
+                  onLoadComplete={handleModelLoadComplete}
+                  onLoadError={handleModelLoadError}
+                />
+              </Suspense>
             </div>
           </div>
         </section>
 
         <section className="order-2 flex min-h-[48vh] flex-col rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-2xl shadow-slate-950/30 backdrop-blur md:p-5 lg:min-h-[780px] lg:p-6">
-          <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
-            <div>
-              <div className="text-lg font-semibold">聊天面板</div>
-              <div className="text-sm text-slate-400">OpenClaw 流式回复 + 可选火山 TTS 播放</div>
-            </div>
-            <div
-              className="hidden h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 md:inline-flex"
-              title={statusLabels[connectionStatus]}
-              aria-label={statusLabels[connectionStatus]}
-            >
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${statusDotStyles[connectionStatus]}`}
-                aria-hidden="true"
-              />
-            </div>
-          </div>
+          <StatusBar
+            connectionStatus={connectionStatus}
+            statusLabel={statusLabels[connectionStatus]}
+            statusDotClassName={statusDotStyles[connectionStatus]}
+          />
 
           {connectionError ? (
             <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 shadow-sm">
@@ -347,7 +345,7 @@ function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void handleRetryConnection()}
+                  onClick={() => void retryConnection()}
                   className="inline-flex items-center justify-center rounded-full bg-red-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-red-500"
                 >
                   重试连接
@@ -356,114 +354,17 @@ function App() {
             </div>
           ) : null}
 
-          <div className="mt-4 flex-1 overflow-y-auto pr-1 md:mt-5">
-            {messages.map((message) => {
-              const isMini = message.role === 'mini'
-              return (
-                <article
-                  key={message.id}
-                  className={`mb-2 flex animate-fade-in ${isMini ? 'justify-start' : 'justify-end'}`}
-                >
-                  <div
-                    className={`max-w-[88%] rounded-2xl p-3 text-sm leading-7 shadow-sm md:max-w-[82%] ${
-                      isMini ? 'bg-gray-100 text-slate-900' : 'bg-blue-500 text-white'
-                    }`}
-                  >
-                    <div
-                      className={`mb-1 text-xs uppercase tracking-[0.2em] ${
-                        isMini ? 'text-slate-500' : 'text-blue-100'
-                      }`}
-                    >
-                      {isMini ? 'Mini' : 'You'}
-                    </div>
-                    <div>{message.content || (isMini && isSending ? 'Mini 正在组织语言…' : '')}</div>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-
-          <div className="mt-4 rounded-3xl border border-white/10 bg-slate-950/80 p-3 md:mt-5">
-            {ttsWarning ? (
-              <div className="mb-3 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 animate-fade-in">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-4 w-4 shrink-0"
-                  aria-hidden="true"
-                >
-                  <path d="M12 9v4" />
-                  <path d="M12 17h.01" />
-                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                </svg>
-                <span>{ttsWarning}</span>
-              </div>
-            ) : null}
-
-            <label htmlFor="chat-input" className="sr-only">
-              输入消息
-            </label>
-            <div className="flex items-end gap-3">
-              <textarea
-                id="chat-input"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    void handleSend()
-                  }
-                }}
-                rows={2}
-                placeholder={isSending ? '发送中...' : '和 Mini 聊聊天...'}
-                disabled={isSending}
-                className="h-12 min-h-12 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-              />
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={isSending || connectionStatus === 'connecting'}
-                className="flex h-12 min-w-24 shrink-0 items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
-                aria-label={isSending ? '发送中' : '发送'}
-              >
-                {isSending ? (
-                  <>
-                    <span className="h-4 w-4 rounded-full border-2 border-slate-400/40 border-t-slate-200 animate-spin" />
-                    <span>发送中...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-5 w-5"
-                      aria-hidden="true"
-                    >
-                      <path d="M5 12h14" />
-                      <path d="m12 5 7 7-7 7" />
-                    </svg>
-                    <span>发送</span>
-                  </>
-                )}
-              </button>
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
-              <p className="text-xs text-slate-500">
-                Enter 发送，Shift + Enter 换行{isSending ? ' · 正在等待回复' : ''}
-              </p>
-              <span className="text-xs text-slate-500">{isSending ? '发送中...' : '准备发送'}</span>
-            </div>
-          </div>
+          <MessageList messages={messages} isSending={isSending} />
+          <QuickReplies disabled={isSending} replies={quickReplies} onSelect={handleQuickReply} />
+          <ChatInput
+            input={input}
+            isSending={isSending}
+            isConnecting={connectionStatus === 'connecting'}
+            ttsWarning={ttsWarning}
+            onInputChange={handleInputChange}
+            onSend={handleSend}
+            onKeyDown={handleInputKeyDown}
+          />
         </section>
       </div>
     </main>

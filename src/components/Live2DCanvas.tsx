@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as PIXI from 'pixi.js'
 import { Live2DModel } from 'pixi-live2d-display/cubism2'
+import type { Live2DEventHandlers } from '../types'
 
 declare global {
   interface Window {
@@ -13,13 +14,7 @@ const SHIZUKU_MODEL_URL =
 
 window.PIXI = PIXI
 
-interface Live2DCanvasProps {
-  onLoadStart?: () => void
-  onLoadComplete?: () => void
-  onLoadError?: (message: string) => void
-}
-
-export function Live2DCanvas({ onLoadStart, onLoadComplete, onLoadError }: Live2DCanvasProps) {
+export function Live2DCanvas({ onLoadStart, onLoadComplete, onLoadError }: Live2DEventHandlers) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState('正在加载 Shizuku 模型...')
 
@@ -29,6 +24,7 @@ export function Live2DCanvas({ onLoadStart, onLoadComplete, onLoadError }: Live2
 
     let destroyed = false
     let model: Live2DModel | null = null
+    let hasEnteredViewport = false
 
     onLoadStart?.()
 
@@ -86,11 +82,27 @@ export function Live2DCanvas({ onLoadStart, onLoadComplete, onLoadError }: Live2
 
     const resizeObserver = new ResizeObserver(() => fitModel())
     resizeObserver.observe(container)
-    void boot()
+
+    const intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries
+        if (!entry?.isIntersecting || hasEnteredViewport) {
+          return
+        }
+
+        hasEnteredViewport = true
+        void boot()
+        intersectionObserver.disconnect()
+      },
+      { threshold: 0.15 },
+    )
+
+    intersectionObserver.observe(container)
 
     return () => {
       destroyed = true
       resizeObserver.disconnect()
+      intersectionObserver.disconnect()
       model?.destroy()
       app.destroy(true, true)
     }
