@@ -6,6 +6,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
-    allowedHosts: 'all',
+    allowedHosts: true,
+    proxy: {
+      '/ws': {
+        target: 'ws://localhost:18789',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
   },
 })

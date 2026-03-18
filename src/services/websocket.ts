@@ -2,8 +2,7 @@ import type { ConnectionStatus } from '../types'
 
 const getWebSocketUrl = () => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.hostname
-  return `${protocol}//${host}:18789`
+  return `${protocol}//${window.location.host}/ws`
 }
 
 const WS_URL = getWebSocketUrl()
