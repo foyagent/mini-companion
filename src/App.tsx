@@ -33,6 +33,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [errorMessage, setErrorMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [isModelLoading, setIsModelLoading] = useState(true)
 
   useEffect(() => {
     const unsubscribeStatus = openClawWebSocket.subscribeStatus((status) => {
@@ -56,11 +57,26 @@ function App() {
 
   const stats = useMemo(
     () => [
-      { label: '模型状态', value: 'Shizuku 在线' },
-      { label: '连接状态', value: statusLabels[connectionStatus] },
-      { label: 'TTS 状态', value: isVolcTtsConfigured() ? '火山已配置' : '待配置' },
+      {
+        label: '模型状态',
+        value: isModelLoading ? 'Shizuku 加载中' : 'Shizuku 在线',
+        icon: '🫧',
+        mobileHidden: false,
+      },
+      {
+        label: '连接状态',
+        value: statusLabels[connectionStatus],
+        icon: '🛰️',
+        mobileHidden: false,
+      },
+      {
+        label: 'TTS 状态',
+        value: isVolcTtsConfigured() ? '火山已配置' : '待配置',
+        icon: '🔊',
+        mobileHidden: true,
+      },
     ],
-    [connectionStatus],
+    [connectionStatus, isModelLoading],
   )
 
   const handleRetryConnection = async () => {
@@ -149,51 +165,97 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-8 text-white md:px-10 md:py-10">
-      <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <section className="space-y-6">
-          <div className="rounded-[32px] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur md:p-8">
-            <div className="inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-1 text-sm font-medium text-cyan-200">
-              Mini Companion · MVP
+    <main className="min-h-screen bg-slate-950 px-4 py-4 text-white sm:px-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
+      <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-7xl flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)] lg:gap-6">
+        <section className="order-1 flex min-h-[46vh] flex-col gap-4 lg:min-h-[780px]">
+          <div className="rounded-[28px] border border-white/10 bg-white/6 p-5 shadow-2xl shadow-slate-950/30 backdrop-blur md:p-6 lg:p-8">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-1 text-sm font-medium text-cyan-200">
+                Mini Companion · MVP
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-1 text-xs text-slate-300 md:hidden">
+                <span className={`h-2 w-2 rounded-full ${statusDotStyles[connectionStatus]}`} />
+                {statusLabels[connectionStatus]}
+              </div>
             </div>
-            <div className="mt-5 space-y-4">
-              <h1 className="text-4xl font-semibold tracking-tight md:text-6xl">
+
+            <div className="mt-4 space-y-3 md:mt-5 md:space-y-4">
+              <h1 className="text-3xl font-semibold tracking-tight md:text-5xl lg:text-6xl">
                 会动的 Mini，开始长脑子也开口说话。
               </h1>
-              <p className="max-w-3xl text-base leading-8 text-slate-300 md:text-lg">
+              <p className="max-w-3xl text-sm leading-7 text-slate-300 md:text-base md:leading-8 lg:text-lg">
                 这版把 OpenClaw 对话和火山 TTS 预埋进来了。现在能走真实消息链路，后面再把动作触发、表情和长期记忆慢慢接齐。
               </p>
             </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
               {stats.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-2xl border border-white/10 bg-slate-900/70 p-4"
+                  className={`${item.mobileHidden ? 'hidden lg:block' : 'block'} bg-white rounded-xl shadow-md p-4`}
                 >
-                  <div className="text-sm text-slate-400">{item.label}</div>
-                  <div className="mt-2 text-lg font-semibold text-white">{item.value}</div>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xl shadow-sm">
+                      <span aria-hidden="true">{item.icon}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                        {item.label}
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900 md:text-base">
+                        {item.value}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <Live2DCanvas />
+          <div className="relative flex-1 overflow-hidden rounded-2xl border border-blue-100/70 bg-gradient-to-br from-blue-50 to-purple-50 shadow-lg">
+            {isModelLoading ? (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/45 backdrop-blur-sm">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
+                <p className="text-sm font-medium text-slate-600">Mini 正在梳头，模型加载中…</p>
+              </div>
+            ) : null}
+
+            <div className="absolute inset-x-4 top-4 z-10 hidden items-center justify-between gap-3 rounded-2xl border border-white/60 bg-white/60 px-4 py-3 text-sm text-slate-700 shadow-sm backdrop-blur md:flex">
+              <div>
+                <div className="font-semibold text-slate-800">Live2D 展示区</div>
+                <div className="text-xs text-slate-500">渐变背景 + 响应式舞台，移动端也能舒展开</div>
+              </div>
+              <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-500 shadow-sm">
+                Tap / Click 可互动
+              </div>
+            </div>
+
+            <div className="h-full min-h-[360px] p-3 pt-16 md:min-h-[520px] md:p-4 md:pt-20 lg:min-h-[640px]">
+              <Live2DCanvas
+                onLoadStart={() => setIsModelLoading(true)}
+                onLoadComplete={() => setIsModelLoading(false)}
+                onLoadError={(message) => {
+                  setIsModelLoading(false)
+                  setErrorMessage(message)
+                }}
+              />
+            </div>
+          </div>
         </section>
 
-        <section className="flex min-h-[720px] flex-col rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-2xl shadow-slate-950/30 backdrop-blur md:p-6">
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <section className="order-2 flex min-h-[48vh] flex-col rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-2xl shadow-slate-950/30 backdrop-blur md:p-5 lg:min-h-[780px] lg:p-6">
+          <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
             <div>
               <div className="text-lg font-semibold">聊天面板</div>
               <div className="text-sm text-slate-400">OpenClaw 流式回复 + 可选火山 TTS 播放</div>
             </div>
             <div
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5"
+              className="hidden h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 md:inline-flex"
               title={statusLabels[connectionStatus]}
               aria-label={statusLabels[connectionStatus]}
             >
               <span
-                className={`h-2 w-2 rounded-full ${statusDotStyles[connectionStatus]}`}
+                className={`h-2.5 w-2.5 rounded-full ${statusDotStyles[connectionStatus]}`}
                 aria-hidden="true"
               />
             </div>
@@ -214,7 +276,7 @@ function App() {
             </div>
           ) : null}
 
-          <div className="mt-5 flex-1 overflow-y-auto pr-1">
+          <div className="mt-4 flex-1 overflow-y-auto pr-1 md:mt-5">
             {messages.map((message) => {
               const isMini = message.role === 'mini'
               return (
@@ -223,11 +285,15 @@ function App() {
                   className={`mb-2 flex ${isMini ? 'justify-start' : 'justify-end'}`}
                 >
                   <div
-                    className={`max-w-[85%] rounded-lg p-3 text-sm leading-7 shadow-sm md:max-w-[80%] ${
+                    className={`max-w-[88%] rounded-2xl p-3 text-sm leading-7 shadow-sm md:max-w-[82%] ${
                       isMini ? 'bg-gray-100 text-slate-900' : 'bg-blue-500 text-white'
                     }`}
                   >
-                    <div className={`mb-1 text-xs uppercase tracking-[0.2em] ${isMini ? 'text-slate-500' : 'text-blue-100'}`}>
+                    <div
+                      className={`mb-1 text-xs uppercase tracking-[0.2em] ${
+                        isMini ? 'text-slate-500' : 'text-blue-100'
+                      }`}
+                    >
                       {isMini ? 'Mini' : 'You'}
                     </div>
                     <div>{message.content || (isMini && isSending ? 'Mini 正在组织语言…' : '')}</div>
@@ -237,7 +303,7 @@ function App() {
             })}
           </div>
 
-          <div className="mt-5 rounded-3xl border border-white/10 bg-slate-950/80 p-3">
+          <div className="mt-4 rounded-3xl border border-white/10 bg-slate-950/80 p-3 md:mt-5">
             <label htmlFor="chat-input" className="sr-only">
               输入消息
             </label>

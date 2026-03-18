@@ -13,7 +13,13 @@ const SHIZUKU_MODEL_URL =
 
 window.PIXI = PIXI
 
-export function Live2DCanvas() {
+interface Live2DCanvasProps {
+  onLoadStart?: () => void
+  onLoadComplete?: () => void
+  onLoadError?: (message: string) => void
+}
+
+export function Live2DCanvas({ onLoadStart, onLoadComplete, onLoadError }: Live2DCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [status, setStatus] = useState('正在加载 Shizuku 模型...')
 
@@ -23,6 +29,8 @@ export function Live2DCanvas() {
 
     let destroyed = false
     let model: Live2DModel | null = null
+
+    onLoadStart?.()
 
     const app = new PIXI.Application({
       width: container.clientWidth || 560,
@@ -67,9 +75,12 @@ export function Live2DCanvas() {
         fitModel()
         app.stage.addChild(model)
         setStatus('Shizuku 已上线，模型展示正常。')
+        onLoadComplete?.()
       } catch (error) {
         console.error(error)
-        setStatus('Live2D 加载失败，请检查运行时脚本或模型地址。')
+        const message = 'Live2D 加载失败，请检查运行时脚本或模型地址。'
+        setStatus(message)
+        onLoadError?.(message)
       }
     }
 
@@ -83,7 +94,7 @@ export function Live2DCanvas() {
       model?.destroy()
       app.destroy(true, true)
     }
-  }, [])
+  }, [onLoadComplete, onLoadError, onLoadStart])
 
   return (
     <div className="relative overflow-hidden rounded-[32px] border border-cyan-400/20 bg-slate-950/70 shadow-2xl shadow-cyan-950/20">
