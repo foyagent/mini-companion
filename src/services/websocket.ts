@@ -1,8 +1,8 @@
 import type { ConnectionStatus } from '../types'
 
 const getWebSocketUrl = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/openclaw-ws`
+  // 直接连接本机 OpenClaw，跳过 Vite WebSocket 代理
+  return 'ws://localhost:18789'
 }
 
 const WS_URL = getWebSocketUrl()
