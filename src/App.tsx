@@ -13,11 +13,11 @@ const starterMessages: ChatMessage[] = [
   },
 ]
 
-const statusStyles: Record<ConnectionStatus, string> = {
-  connecting: 'border-amber-400/30 bg-amber-400/10 text-amber-200',
-  connected: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200',
-  disconnected: 'border-slate-400/30 bg-slate-400/10 text-slate-200',
-  error: 'border-rose-400/30 bg-rose-400/10 text-rose-200',
+const statusDotStyles: Record<ConnectionStatus, string> = {
+  connecting: 'bg-yellow-500',
+  connected: 'bg-green-500',
+  disconnected: 'bg-red-500',
+  error: 'bg-red-500',
 }
 
 const statusLabels: Record<ConnectionStatus, string> = {
@@ -188,9 +188,14 @@ function App() {
               <div className="text-sm text-slate-400">OpenClaw 流式回复 + 可选火山 TTS 播放</div>
             </div>
             <div
-              className={`rounded-full border px-3 py-1 text-xs ${statusStyles[connectionStatus]}`}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5"
+              title={statusLabels[connectionStatus]}
+              aria-label={statusLabels[connectionStatus]}
             >
-              {statusLabels[connectionStatus]}
+              <span
+                className={`h-2 w-2 rounded-full ${statusDotStyles[connectionStatus]}`}
+                aria-hidden="true"
+              />
             </div>
           </div>
 
@@ -209,22 +214,20 @@ function App() {
             </div>
           ) : null}
 
-          <div className="mt-5 flex-1 space-y-4 overflow-y-auto pr-1">
+          <div className="mt-5 flex-1 overflow-y-auto pr-1">
             {messages.map((message) => {
               const isMini = message.role === 'mini'
               return (
                 <article
                   key={message.id}
-                  className={`flex ${isMini ? 'justify-start' : 'justify-end'}`}
+                  className={`mb-2 flex ${isMini ? 'justify-start' : 'justify-end'}`}
                 >
                   <div
-                    className={`max-w-[85%] rounded-3xl px-4 py-3 text-sm leading-7 shadow-lg ${
-                      isMini
-                        ? 'rounded-bl-md border border-cyan-400/20 bg-cyan-400/10 text-cyan-50'
-                        : 'rounded-br-md border border-white/10 bg-slate-800 text-slate-100'
+                    className={`max-w-[85%] rounded-lg p-3 text-sm leading-7 shadow-sm md:max-w-[80%] ${
+                      isMini ? 'bg-gray-100 text-slate-900' : 'bg-blue-500 text-white'
                     }`}
                   >
-                    <div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-400">
+                    <div className={`mb-1 text-xs uppercase tracking-[0.2em] ${isMini ? 'text-slate-500' : 'text-blue-100'}`}>
                       {isMini ? 'Mini' : 'You'}
                     </div>
                     <div>{message.content || (isMini && isSending ? 'Mini 正在组织语言…' : '')}</div>
@@ -238,32 +241,49 @@ function App() {
             <label htmlFor="chat-input" className="sr-only">
               输入消息
             </label>
-            <textarea
-              id="chat-input"
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  void handleSend()
-                }
-              }}
-              rows={4}
-              placeholder="比如：Mini，今天给我总结一下待办。"
-              className="w-full resize-none border-0 bg-transparent px-2 py-1 text-sm text-white outline-none placeholder:text-slate-500"
-            />
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
-              <p className="text-xs text-slate-500">
-                Enter 发送，Shift + Enter 换行{isSending ? ' · 正在等待回复' : ''}
-              </p>
+            <div className="flex items-end gap-3">
+              <textarea
+                id="chat-input"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    void handleSend()
+                  }
+                }}
+                rows={2}
+                placeholder="和 Mini 聊聊天..."
+                className="h-12 min-h-12 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+              />
               <button
                 type="button"
                 onClick={() => void handleSend()}
                 disabled={isSending || connectionStatus === 'connecting'}
-                className="rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-400 text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                aria-label={isSending ? '发送中' : '发送'}
               >
-                {isSending ? '发送中…' : '发送'}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
               </button>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+              <p className="text-xs text-slate-500">
+                Enter 发送，Shift + Enter 换行{isSending ? ' · 正在等待回复' : ''}
+              </p>
+              <span className="text-xs text-slate-500">{isSending ? '发送中…' : '准备发送'}</span>
             </div>
           </div>
         </section>
