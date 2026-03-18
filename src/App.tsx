@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Live2DCanvas from './components/Live2DCanvas'
 import { openClawWebSocket } from './services/websocket'
 import { isVolcTtsConfigured, speakText } from './services/tts'
@@ -27,39 +27,78 @@ const statusLabels: Record<ConnectionStatus, string> = {
   error: '连接异常',
 }
 
+type ToastTone = 'error' | 'info'
+
+interface ToastState {
+  id: number
+  message: string
+  tone: ToastTone
+}
+
 function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages)
   const [input, setInput] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
-  const [errorMessage, setErrorMessage] = useState('')
+  const [connectionError, setConnectionError] = useState('')
+  const [ttsWarning, setTtsWarning] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [isModelLoading, setIsModelLoading] = useState(true)
+  const [toast, setToast] = useState<ToastState | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
+
+  const showToast = useCallback((message: string, tone: ToastTone = 'error') => {
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+
+    setToast({ id: Date.now(), message, tone })
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null)
+      toastTimerRef.current = null
+    }, 3000)
+  }, [])
 
   useEffect(() => {
     const unsubscribeStatus = openClawWebSocket.subscribeStatus((status) => {
       setConnectionStatus(status)
+
+      if (status === 'connected') {
+        setConnectionError('')
+      }
     })
 
     const unsubscribeError = openClawWebSocket.subscribeError((message) => {
-      setErrorMessage(message)
+      const friendlyMessage = message.includes('OpenClaw 服务')
+        ? '还没连上 OpenClaw。先确认服务已经启动，再点一次重试。'
+        : message
+
+      setConnectionError(friendlyMessage)
+      showToast(friendlyMessage)
     })
 
     void openClawWebSocket.connect().catch((error: unknown) => {
-      setErrorMessage(error instanceof Error ? error.message : '连接 OpenClaw 失败。')
+      const message = error instanceof Error ? error.message : '连接 OpenClaw 失败。'
+      const friendlyMessage = `连接没有成功：${message}`
+      setConnectionError(friendlyMessage)
+      showToast(friendlyMessage)
     })
 
     return () => {
       unsubscribeStatus()
       unsubscribeError()
       openClawWebSocket.disconnect()
+
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current)
+      }
     }
-  }, [])
+  }, [showToast])
 
   const stats = useMemo(
     () => [
       {
         label: '模型状态',
-        value: isModelLoading ? 'Shizuku 加载中' : 'Shizuku 在线',
+        value: isModelLoading ? '加载中' : 'Shizuku 在线',
         icon: '🫧',
         mobileHidden: false,
       },
@@ -80,12 +119,16 @@ function App() {
   )
 
   const handleRetryConnection = async () => {
-    setErrorMessage('')
+    setConnectionError('')
 
     try {
       await openClawWebSocket.connect()
+      showToast('重新连接成功。', 'info')
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '重连失败。')
+      const message = error instanceof Error ? error.message : '重连失败。'
+      const friendlyMessage = `重试还是没连上：${message}`
+      setConnectionError(friendlyMessage)
+      showToast(friendlyMessage)
     }
   }
 
@@ -93,24 +136,26 @@ function App() {
     const text = input.trim()
     if (!text || isSending) return
 
+    const now = Date.now()
     const userMessage: ChatMessage = {
-      id: Date.now(),
+      id: now,
       role: 'user',
       content: text,
-      timestamp: Date.now(),
+      timestamp: now,
     }
 
-    const assistantMessageId = Date.now() + 1
+    const assistantMessageId = now + 1
     const assistantPlaceholder: ChatMessage = {
       id: assistantMessageId,
       role: 'mini',
       content: '',
-      timestamp: Date.now(),
+      timestamp: now,
     }
 
     setMessages((current) => [...current, userMessage, assistantPlaceholder])
     setInput('')
-    setErrorMessage('')
+    setConnectionError('')
+    setTtsWarning('')
     setIsSending(true)
 
     try {
@@ -133,22 +178,25 @@ function App() {
           if (isVolcTtsConfigured()) {
             try {
               await speakText(finalText)
-            } catch (error) {
-              setErrorMessage(error instanceof Error ? error.message : 'TTS 播放失败。')
+            } catch {
+              setTtsWarning('TTS 播放失败')
+              showToast('TTS 播放失败')
             }
           }
 
           setIsSending(false)
         },
         onError: (error) => {
+          const friendlyMessage = `连接出了点小岔子：${error.message}`
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantMessageId
-                ? { ...message, content: `连接出了点问题：${error.message}` }
+                ? { ...message, content: friendlyMessage }
                 : message,
             ),
           )
-          setErrorMessage(error.message)
+          setConnectionError('消息没发成功，先检查一下连接状态，然后再试一次。')
+          showToast(error.message)
           setIsSending(false)
         },
       })
@@ -159,13 +207,45 @@ function App() {
           item.id === assistantMessageId ? { ...item, content: `发送失败：${message}` } : item,
         ),
       )
-      setErrorMessage(message)
+      setConnectionError('这一条没有送出去，点重试或稍后再发一次。')
+      showToast(message)
       setIsSending(false)
     }
   }
 
+  const handleModelLoadStart = useCallback(() => {
+    setIsModelLoading(true)
+  }, [])
+
+  const handleModelLoadComplete = useCallback(() => {
+    setIsModelLoading(false)
+  }, [])
+
+  const handleModelLoadError = useCallback(
+    (message: string) => {
+      setIsModelLoading(false)
+      showToast(message)
+    },
+    [showToast],
+  )
+
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-4 text-white sm:px-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
+      <div className="pointer-events-none fixed right-4 top-4 z-50 md:right-6 md:top-6">
+        {toast ? (
+          <div
+            key={toast.id}
+            className={`min-w-[240px] rounded-2xl border px-4 py-3 text-sm shadow-2xl backdrop-blur animate-fade-in ${
+              toast.tone === 'error'
+                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                : 'border-cyan-200 bg-cyan-50 text-cyan-900'
+            }`}
+          >
+            {toast.message}
+          </div>
+        ) : null}
+      </div>
+
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-7xl flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)] lg:gap-6">
         <section className="order-1 flex min-h-[46vh] flex-col gap-4 lg:min-h-[780px]">
           <div className="rounded-[28px] border border-white/10 bg-white/6 p-5 shadow-2xl shadow-slate-950/30 backdrop-blur md:p-6 lg:p-8">
@@ -192,7 +272,7 @@ function App() {
               {stats.map((item) => (
                 <div
                   key={item.label}
-                  className={`${item.mobileHidden ? 'hidden lg:block' : 'block'} bg-white rounded-xl shadow-md p-4`}
+                  className={`${item.mobileHidden ? 'hidden lg:block' : 'block'} rounded-xl bg-white p-4 shadow-md`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xl shadow-sm">
@@ -216,7 +296,7 @@ function App() {
             {isModelLoading ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/45 backdrop-blur-sm">
                 <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-200 border-t-blue-500" />
-                <p className="text-sm font-medium text-slate-600">Mini 正在梳头，模型加载中…</p>
+                <p className="text-sm font-medium text-slate-600">模型加载中...</p>
               </div>
             ) : null}
 
@@ -232,12 +312,9 @@ function App() {
 
             <div className="h-full min-h-[360px] p-3 pt-16 md:min-h-[520px] md:p-4 md:pt-20 lg:min-h-[640px]">
               <Live2DCanvas
-                onLoadStart={() => setIsModelLoading(true)}
-                onLoadComplete={() => setIsModelLoading(false)}
-                onLoadError={(message) => {
-                  setIsModelLoading(false)
-                  setErrorMessage(message)
-                }}
+                onLoadStart={handleModelLoadStart}
+                onLoadComplete={handleModelLoadComplete}
+                onLoadError={handleModelLoadError}
               />
             </div>
           </div>
@@ -261,14 +338,17 @@ function App() {
             </div>
           </div>
 
-          {errorMessage ? (
-            <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-              <div className="flex items-center justify-between gap-3">
-                <span>{errorMessage}</span>
+          {connectionError ? (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="font-semibold text-red-800">连接出了点问题</div>
+                  <div className="mt-1">{connectionError}</div>
+                </div>
                 <button
                   type="button"
                   onClick={() => void handleRetryConnection()}
-                  className="rounded-full border border-white/15 px-3 py-1 text-xs text-white transition hover:bg-white/10"
+                  className="inline-flex items-center justify-center rounded-full bg-red-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-red-500"
                 >
                   重试连接
                 </button>
@@ -282,7 +362,7 @@ function App() {
               return (
                 <article
                   key={message.id}
-                  className={`mb-2 flex ${isMini ? 'justify-start' : 'justify-end'}`}
+                  className={`mb-2 flex animate-fade-in ${isMini ? 'justify-start' : 'justify-end'}`}
                 >
                   <div
                     className={`max-w-[88%] rounded-2xl p-3 text-sm leading-7 shadow-sm md:max-w-[82%] ${
@@ -304,6 +384,27 @@ function App() {
           </div>
 
           <div className="mt-4 rounded-3xl border border-white/10 bg-slate-950/80 p-3 md:mt-5">
+            {ttsWarning ? (
+              <div className="mb-3 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 animate-fade-in">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-4 w-4 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                </svg>
+                <span>{ttsWarning}</span>
+              </div>
+            ) : null}
+
             <label htmlFor="chat-input" className="sr-only">
               输入消息
             </label>
@@ -319,37 +420,48 @@ function App() {
                   }
                 }}
                 rows={2}
-                placeholder="和 Mini 聊聊天..."
-                className="h-12 min-h-12 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                placeholder={isSending ? '发送中...' : '和 Mini 聊聊天...'}
+                disabled={isSending}
+                className="h-12 min-h-12 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
               />
               <button
                 type="button"
                 onClick={() => void handleSend()}
                 disabled={isSending || connectionStatus === 'connecting'}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-400 text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                className="flex h-12 min-w-24 shrink-0 items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
                 aria-label={isSending ? '发送中' : '发送'}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
+                {isSending ? (
+                  <>
+                    <span className="h-4 w-4 rounded-full border-2 border-slate-400/40 border-t-slate-200 animate-spin" />
+                    <span>发送中...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-5 w-5"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 12h14" />
+                      <path d="m12 5 7 7-7 7" />
+                    </svg>
+                    <span>发送</span>
+                  </>
+                )}
               </button>
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
               <p className="text-xs text-slate-500">
                 Enter 发送，Shift + Enter 换行{isSending ? ' · 正在等待回复' : ''}
               </p>
-              <span className="text-xs text-slate-500">{isSending ? '发送中…' : '准备发送'}</span>
+              <span className="text-xs text-slate-500">{isSending ? '发送中...' : '准备发送'}</span>
             </div>
           </div>
         </section>
