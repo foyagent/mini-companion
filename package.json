@@ -13,7 +13,8 @@
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "vconsole": "^3.15.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

@@ -8,10 +8,11 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
     proxy: {
-      '/ws': {
+      '/openclaw-ws': {
         target: 'ws://localhost:18789',
         ws: true,
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/openclaw-ws/, ''),
       },
     },
   },
