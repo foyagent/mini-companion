@@ -11,9 +11,9 @@ function ChatInputComponent({
   onKeyDown,
 }: ChatInputProps) {
   return (
-    <div className="mt-4 rounded-3xl border border-white/10 bg-slate-950/80 p-3 md:mt-5">
+    <div className="mt-4 rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(4,10,22,0.92),rgba(6,12,24,0.88))] p-3 shadow-[0_18px_36px_rgba(2,6,23,0.24)] md:mt-5">
       {ttsWarning ? (
-        <div className="mb-3 flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 animate-fade-in">
+        <div className="mb-3 flex animate-fade-in items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
@@ -45,7 +45,7 @@ function ChatInputComponent({
           rows={2}
           placeholder={isSending ? '发送中...' : '和 Mini 聊聊天...'}
           disabled={isSending}
-          className="h-12 min-h-12 flex-1 resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-12 min-h-12 flex-1 resize-none rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="button"

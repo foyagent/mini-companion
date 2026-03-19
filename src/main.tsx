@@ -4,10 +4,15 @@ import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary'
 
-// 开发模式启用 vconsole，方便移动端真机调试。
-if (import.meta.env.DEV) {
+// 仅在需要真机调试时启用 vConsole，避免桌面 UI 查验时出现绿色悬浮按钮。
+const shouldEnableVConsole =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('debug')
+
+if (shouldEnableVConsole) {
   import('vconsole').then((module) => {
-    new module.default()
+    new module.default({ theme: 'dark' })
   })
 }
 
